@@ -1,0 +1,37 @@
+{
+  "configurations": [
+    {
+      "showDevDebugOutput": true,
+      "cwd": "${workspaceRoot}",
+      "executable": "./build/signalbox.elf",
+      "name": "Debug STM32",
+      "request": "launch",
+      "type": "cortex-debug",
+      "servertype": "openocd",
+      "preLaunchTask": "Build STM",
+      "device": "stlink",
+      "searchDir": [
+        "C:/VSARM/share/openocd/scripts"
+      ],
+      "configFiles": [
+        "interface/stlink.cfg",
+        "target/stm32l4x.cfg"
+      ]
+    },
+    {
+      "showDevDebugOutput": true,
+      "cwd": "${workspaceRoot}",
+      "executable": "./build/signalbox.elf",
+      "name": "Debug STM32",
+      "request": "launch",
+      "type": "cortex-debug",
+      "servertype": "openocd",
+      "preLaunchTask": "Build STM",
+      "device": "stlink",
+      "configFiles": [
+        "interface/stlink.cfg",
+        "target/stm32l4x.cfg"
+      ]
+    }
+  ]
+}
