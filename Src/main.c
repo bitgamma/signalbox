@@ -15,6 +15,9 @@ DAC_HandleTypeDef hdac1;
 DMA_HandleTypeDef hdma_dac_ch1;
 
 TIM_HandleTypeDef htim3;
+
+OPAMP_HandleTypeDef hopamp2;
+
 uint8_t InSampleBuffer[SAMPLE_BUF_SIZE];
 
 uint8_t* ToSendBuf;
@@ -24,6 +27,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_OPAMP2_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM3_Init(void);
 
@@ -58,6 +62,7 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_ADC1_Init();
+  MX_OPAMP2_Init();
   MX_DAC1_Init();
   MX_USB_DEVICE_Init();
   MX_TIM3_Init();
@@ -204,6 +209,23 @@ static void MX_DAC1_Init(void)
   {
     Error_Handler();
   }
+}
+
+static void MX_OPAMP2_Init(void)
+{
+  hopamp2.Instance = OPAMP2;
+  hopamp2.Init.PowerSupplyRange = OPAMP_POWERSUPPLY_HIGH;
+  hopamp2.Init.Mode = OPAMP_FOLLOWER_MODE;
+  hopamp2.Init.NonInvertingInput = OPAMP_NONINVERTINGINPUT_IO0;
+  hopamp2.Init.PowerMode = OPAMP_POWERMODE_NORMAL;
+  hopamp2.Init.UserTrimming = OPAMP_TRIMMING_FACTORY;
+  if (HAL_OPAMP_Init(&hopamp2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  HAL_OPAMP_SelfCalibrate(&hopamp2);
+  HAL_OPAMP_Start(&hopamp2);
 }
 
 static void MX_TIM3_Init(void)
