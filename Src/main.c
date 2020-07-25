@@ -42,9 +42,11 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 void CDC_RTS_OnChange(uint8_t on) {
   if(on && RunMode == RUN_MODE_SETUP) {
     RunMode = RUN_MODE_ACQUISITION;
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
     HAL_TIM_Base_Start(&htim3);
   } else if (RunMode == RUN_MODE_ACQUISITION) {
     RunMode = RUN_MODE_SETUP;
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
     HAL_TIM_Base_Stop(&htim3);
   }
 }
@@ -65,12 +67,6 @@ int main(void)
   while (1)
   {
     if (ToSendBuf) {
-      if (ToSendBuf == InSampleBuffer) {
-        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-      } else {
-        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-      }
-
       CDC_Transmit_FS(ToSendBuf, SEND_SIZE);
       ToSendBuf = NULL;
     }

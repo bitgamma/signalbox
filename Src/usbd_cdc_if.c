@@ -1,6 +1,10 @@
 #include "usbd_cdc_if.h"
 
+#define CDC_CONTROL_DTR 0x01
 #define CDC_CONTROL_RTS 0x02
+
+#define CDC_CTL_MASK (CDC_CONTROL_RTS | CDC_CONTROL_DTR)
+
 #define CDC_CONTROL_LINE_OFF 2
 
 extern USBD_HandleTypeDef hUsbDeviceFS;
@@ -35,7 +39,7 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
   switch(cmd)
   {
     case CDC_SET_CONTROL_LINE_STATE:
-    CDC_RTS_OnChange((pbuf[CDC_CONTROL_LINE_OFF] & CDC_CONTROL_RTS) != 0);
+    CDC_RTS_OnChange((pbuf[CDC_CONTROL_LINE_OFF] & CDC_CTL_MASK) == CDC_CONTROL_DTR);
     break;
     case CDC_SEND_ENCAPSULATED_COMMAND:
     break;
