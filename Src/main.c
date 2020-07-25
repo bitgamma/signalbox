@@ -159,8 +159,8 @@ static void MX_ADC1_Init(void)
   hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
   hadc1.Init.OversamplingMode = ENABLE;
-  hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_2;
-  hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_NONE;
+  hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_32;
+  hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_1;
   hadc1.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
   hadc1.Init.Oversampling.OversamplingStopReset = ADC_REGOVERSAMPLING_CONTINUED_MODE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -178,7 +178,7 @@ static void MX_ADC1_Init(void)
 
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_247CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
