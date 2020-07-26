@@ -6,7 +6,7 @@
 #define SAMPLE_BUF_SIZE (SEND_SIZE * 2)
 
 #define RUN_MODE_SETUP 0
-#define RUN_MODE_ACQUISITION 1
+#define RUN_MODE_ACTIVE 1
 
 ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
@@ -15,13 +15,19 @@ DAC_HandleTypeDef hdac1;
 DMA_HandleTypeDef hdma_dac_ch1;
 
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim6;
 
 OPAMP_HandleTypeDef hopamp2;
 
 uint8_t InSampleBuffer[SAMPLE_BUF_SIZE];
+uint8_t OutSampleBuffer[SAMPLE_BUF_SIZE];
+uint8_t CommandBuffer[SEND_SIZE];
 
 uint8_t* ToSendBuf;
+uint8_t* ToRecvBuf;
+
 uint8_t RunMode;
+uint8_t BusyBuffers;
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -30,6 +36,9 @@ static void MX_ADC1_Init(void);
 static void MX_OPAMP2_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM6_Init(void);
+
+static void InitOutSampleBuffer();
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
@@ -43,20 +52,60 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
   ToSendBuf = InSampleBuffer;
 }
 
+void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
+  UNUSED(hdac);
+  ToRecvBuf = &OutSampleBuffer[SEND_SIZE];
+ // if (BusyBuffers > 0) { BusyBuffers--; };
+}
+
+void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
+  UNUSED(hdac);
+  ToRecvBuf = OutSampleBuffer;
+ // if (BusyBuffers > 0) { BusyBuffers--; };
+}
+
+uint8_t* CDC_GetRecvBuffer() {
+  if (RunMode == RUN_MODE_SETUP) {
+    return CommandBuffer;
+  } else if (BusyBuffers < 2) {
+    //BusyBuffers++;
+    return ToRecvBuf;
+  } else {
+    return NULL;
+  }
+}
+
 void CDC_RTS_OnChange(uint8_t on) {
   if(on && RunMode == RUN_MODE_SETUP) {
-    RunMode = RUN_MODE_ACQUISITION;
+    RunMode = RUN_MODE_ACTIVE;
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+    HAL_TIM_Base_Start(&htim6);
     HAL_TIM_Base_Start(&htim3);
-  } else if (RunMode == RUN_MODE_ACQUISITION) {
+  } else if (RunMode == RUN_MODE_ACTIVE) {
     RunMode = RUN_MODE_SETUP;
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+    HAL_TIM_Base_Stop(&htim6);
     HAL_TIM_Base_Stop(&htim3);
+    InitOutSampleBuffer();
   }
+}
+
+static void InitOutSampleBuffer() {
+  for(int i = 0; i < SAMPLE_BUF_SIZE; i++) {
+    OutSampleBuffer[i] = 0x00;
+  }
+
+  BusyBuffers = 1;
 }
 
 int main(void)
 {
+  RunMode = RUN_MODE_SETUP;
+  ToSendBuf = NULL;
+  ToRecvBuf = &OutSampleBuffer[SEND_SIZE];
+
+  InitOutSampleBuffer();
+
   HAL_Init();
   SystemClock_Config();
   MX_GPIO_Init();
@@ -66,8 +115,7 @@ int main(void)
   MX_DAC1_Init();
   MX_USB_DEVICE_Init();
   MX_TIM3_Init();
-  ToSendBuf = NULL;
-  RunMode = RUN_MODE_SETUP;
+  MX_TIM6_Init();
 
   while (1)
   {
@@ -201,12 +249,21 @@ static void MX_DAC1_Init(void)
   }
 
   sConfig.DAC_SampleAndHold = DAC_SAMPLEANDHOLD_DISABLE;
-  sConfig.DAC_Trigger = DAC_TRIGGER_NONE;
+  sConfig.DAC_Trigger = DAC_TRIGGER_T6_TRGO;
   sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
   sConfig.DAC_ConnectOnChipPeripheral = DAC_CHIPCONNECT_DISABLE;
   sConfig.DAC_UserTrimming = DAC_TRIMMING_FACTORY;
   if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK)
   {
+    Error_Handler();
+  }
+
+  if (HAL_DACEx_SelfCalibrate(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t* )OutSampleBuffer, (SAMPLE_BUF_SIZE/2), DAC_ALIGN_12B_R) != HAL_OK) {
     Error_Handler();
   }
 }
@@ -226,6 +283,7 @@ static void MX_OPAMP2_Init(void)
 
   HAL_OPAMP_SelfCalibrate(&hopamp2);
   HAL_OPAMP_Start(&hopamp2);
+  __HAL_RCC_OPAMP_CLK_DISABLE();
 }
 
 static void MX_TIM3_Init(void)
@@ -256,6 +314,34 @@ static void MX_TIM3_Init(void)
   }
 }
 
+static void MX_TIM6_Init(void)
+{
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  htim6.Instance = TIM6;
+  htim6.Init.Prescaler = 0;
+  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim6.Init.Period = 799;
+  htim6.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim6, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
 static void MX_DMA_Init(void)
 {
   __HAL_RCC_DMA2_CLK_ENABLE();
@@ -266,7 +352,6 @@ static void MX_DMA_Init(void)
 
   HAL_NVIC_SetPriority(DMA2_Channel4_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA2_Channel4_IRQn);
-
 }
 
 static void MX_GPIO_Init(void)
@@ -293,7 +378,7 @@ static void MX_GPIO_Init(void)
 
 void Error_Handler(void)
 {
-
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
 }
 
 #ifdef  USE_FULL_ASSERT
