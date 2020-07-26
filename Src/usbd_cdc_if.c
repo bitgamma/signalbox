@@ -16,6 +16,7 @@ static int8_t CDC_Receive_FS(uint8_t* pbuf, uint32_t *Len);
 
 void CDC_RTS_OnChange(uint8_t on);
 uint8_t* CDC_GetRecvBuffer();
+void CDC_Received();
 
 USBD_CDC_ItfTypeDef USBD_Interface_fops_FS =
 {
@@ -66,15 +67,10 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
-  uint8_t* recvBuf = CDC_GetRecvBuffer();
-
-  if (recvBuf != NULL) {
-    USBD_CDC_SetRxBuffer(&hUsbDeviceFS, recvBuf);
-    USBD_CDC_ReceivePacket(&hUsbDeviceFS);
-    return (USBD_OK);
-  }
-
-  return (USBD_BUSY);
+  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, CDC_GetRecvBuffer());
+  USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+  CDC_Received();
+  return (USBD_OK);
 }
 
 uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)

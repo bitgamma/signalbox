@@ -8,6 +8,8 @@
 #define RUN_MODE_SETUP 0
 #define RUN_MODE_ACTIVE 1
 
+extern USBD_HandleTypeDef hUsbDeviceFS;
+
 ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
@@ -37,6 +39,7 @@ static void MX_OPAMP2_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM6_Init(void);
+static void USB_GlobalNAK(uint8_t set);
 
 static void InitOutSampleBuffer();
 
@@ -55,24 +58,36 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   UNUSED(hdac);
   ToRecvBuf = &OutSampleBuffer[SEND_SIZE];
- // if (BusyBuffers > 0) { BusyBuffers--; };
+  if (BusyBuffers > 0) { BusyBuffers--; };
+  USB_GlobalNAK(0);
 }
 
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   UNUSED(hdac);
   ToRecvBuf = OutSampleBuffer;
- // if (BusyBuffers > 0) { BusyBuffers--; };
+  if (BusyBuffers > 0) { BusyBuffers--; };
+  USB_GlobalNAK(0);
 }
 
 uint8_t* CDC_GetRecvBuffer() {
   if (RunMode == RUN_MODE_SETUP) {
     return CommandBuffer;
-  } else if (BusyBuffers < 2) {
-    //BusyBuffers++;
-    return ToRecvBuf;
   } else {
-    return NULL;
+    return ToRecvBuf;
   }
+}
+
+void CDC_Received() {
+  if (RunMode == RUN_MODE_ACTIVE && (BusyBuffers++ > 0)) {
+    USB_GlobalNAK(1);
+  }
+}
+
+static void USB_GlobalNAK(uint8_t set) {
+  PCD_HandleTypeDef *hpcd = hUsbDeviceFS.pData;
+  USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;
+  uint32_t USBx_BASE = (uint32_t)USBx;
+  USBx_DEVICE->DCTL |= set ? USB_OTG_DCTL_SGONAK : USB_OTG_DCTL_CGONAK;
 }
 
 void CDC_RTS_OnChange(uint8_t on) {
@@ -86,6 +101,7 @@ void CDC_RTS_OnChange(uint8_t on) {
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
     HAL_TIM_Base_Stop(&htim6);
     HAL_TIM_Base_Stop(&htim3);
+    USB_GlobalNAK(0);
     InitOutSampleBuffer();
   }
 }
