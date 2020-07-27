@@ -31,19 +31,21 @@ uint8_t* ToRecvBuf;
 uint8_t RunMode;
 uint8_t BusyBuffers;
 
+uint8_t NextMode;
+
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void DMA_DeInit(void);
-static void MX_ADC1_Init(void);
-static void MX_OPAMP2_Init(void);
-static void MX_DAC1_Init(void);
+static void ADC_Init(ADC_HandleTypeDef*);
+static void DAC_Init(DAC_HandleTypeDef*);
+static void OPAMP_Init(OPAMP_HandleTypeDef*);
 static void Timer_Init(TIM_HandleTypeDef*);
 
 static void EnterActiveMode();
 static void ExitActiveMode();
 static void Sleep(void);
-static void InitOutSampleBuffer();
+static void InitBuffers();
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
@@ -87,31 +89,31 @@ void CDC_Received() {
 
 void CDC_StartStop_Signal(uint8_t on) {
   if(on && RunMode == RUN_MODE_SETUP) {
-    EnterActiveMode();
+    NextMode = RUN_MODE_ACTIVE;
   } else if (!on && RunMode == RUN_MODE_ACTIVE) {
-    ExitActiveMode();
+    NextMode = RUN_MODE_SETUP;
   }
 }
 
 static void EnterActiveMode() {
   RunMode = RUN_MODE_ACTIVE;
-  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
 
   MX_DMA_Init();
 
   __HAL_RCC_OPAMP_CLK_ENABLE();
-  MX_OPAMP2_Init();
+  OPAMP_Init(&hopamp2);
   __HAL_RCC_OPAMP_CLK_DISABLE();
 
-  MX_ADC1_Init();
-  MX_DAC1_Init();
+  ADC_Init(&hadc1);
+  DAC_Init(&hdac1);
   Timer_Init(&htim3);
   Timer_Init(&htim6);
+
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
 }
 
 static void ExitActiveMode() {
   RunMode = RUN_MODE_SETUP;
-  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 
   HAL_TIM_Base_Stop(&htim6);
   HAL_TIM_Base_DeInit(&htim6);
@@ -132,31 +134,29 @@ static void ExitActiveMode() {
 
   DMA_DeInit();
 
-  InitOutSampleBuffer();
   CDC_USB_GlobalOUTNAK(0);
+
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 }
 
-static void Sleep() {
+static inline void Sleep() {
   HAL_SuspendTick();
   __WFI();
   HAL_ResumeTick();
 }
 
-static void InitOutSampleBuffer() {
-  for(int i = 0; i < SAMPLE_BUF_SIZE; i++) {
-    OutSampleBuffer[i] = 0x00;
-  }
-
-  BusyBuffers = 1;
+static void InitBuffers() {
+  ToSendBuf = NULL;
+  ToRecvBuf = OutSampleBuffer;
+  BusyBuffers = 0;
 }
 
 int main(void)
 {
   RunMode = RUN_MODE_SETUP;
-  ToSendBuf = NULL;
-  ToRecvBuf = &OutSampleBuffer[SEND_SIZE];
+  NextMode = RUN_MODE_SETUP;
 
-  InitOutSampleBuffer();
+  InitBuffers();
 
   HAL_Init();
   SystemClock_Config();
@@ -171,11 +171,11 @@ int main(void)
 
   while (1)
   {
-    if (RunMode == RUN_MODE_SETUP)
-    {
+    if (NextMode != RunMode) {
+      NextMode == RUN_MODE_ACTIVE ? EnterActiveMode() : ExitActiveMode();
+    } else if (RunMode == RUN_MODE_SETUP) {
       Sleep();
-    } else if (ToSendBuf)
-    {
+    } else if (ToSendBuf) {
       CDC_Transmit_FS(ToSendBuf, SEND_SIZE);
       ToSendBuf = NULL;
     }
@@ -242,42 +242,42 @@ void SystemClock_Config(void)
   HAL_RCCEx_EnableMSIPLLMode();
 }
 
-static void MX_ADC1_Init(void)
+static void ADC_Init(ADC_HandleTypeDef *hadc)
 {
   ADC_MultiModeTypeDef multimode = {0};
   ADC_ChannelConfTypeDef sConfig = {0};
 
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
-  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
-  hadc1.Init.EOCSelection = ADC_EOC_SEQ_CONV;
-  hadc1.Init.LowPowerAutoWait = DISABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
-  hadc1.Init.NbrOfConversion = 1;
-  hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.NbrOfDiscConversion = 1;
-  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
-  hadc1.Init.DMAContinuousRequests = ENABLE;
-  hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
-  hadc1.Init.OversamplingMode = ENABLE;
-  hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_4;
-  hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_NONE;
-  hadc1.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
-  hadc1.Init.Oversampling.OversamplingStopReset = ADC_REGOVERSAMPLING_CONTINUED_MODE;
-  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  hadc->Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc->Init.Resolution = ADC_RESOLUTION_12B;
+  hadc->Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc->Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc->Init.EOCSelection = ADC_EOC_SEQ_CONV;
+  hadc->Init.LowPowerAutoWait = DISABLE;
+  hadc->Init.ContinuousConvMode = DISABLE;
+  hadc->Init.NbrOfConversion = 1;
+  hadc->Init.DiscontinuousConvMode = DISABLE;
+  hadc->Init.NbrOfDiscConversion = 1;
+  hadc->Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
+  hadc->Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc->Init.DMAContinuousRequests = ENABLE;
+  hadc->Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+  hadc->Init.OversamplingMode = ENABLE;
+  hadc->Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_4;
+  hadc->Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_NONE;
+  hadc->Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
+  hadc->Init.Oversampling.OversamplingStopReset = ADC_REGOVERSAMPLING_CONTINUED_MODE;
+  if (HAL_ADC_Init(hadc) != HAL_OK)
   {
     Error_Handler();
   }
 
   multimode.Mode = ADC_MODE_INDEPENDENT;
-  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
+  if (HAL_ADCEx_MultiModeConfigChannel(hadc, &multimode) != HAL_OK)
   {
     Error_Handler();
   }
 
-  if (HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED) != HAL_OK) Error_Handler();
+  if (HAL_ADCEx_Calibration_Start(hadc, ADC_SINGLE_ENDED) != HAL_OK) Error_Handler();
 
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_1;
@@ -285,19 +285,19 @@ static void MX_ADC1_Init(void)
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  if (HAL_ADC_ConfigChannel(hadc, &sConfig) != HAL_OK)
   {
     Error_Handler();
   }
 
-  if (HAL_ADC_Start_DMA(&hadc1, (uint32_t* )InSampleBuffer, (SAMPLE_BUF_SIZE/2))) Error_Handler();
+  if (HAL_ADC_Start_DMA(hadc, (uint32_t* )InSampleBuffer, (SAMPLE_BUF_SIZE/2))) Error_Handler();
 }
 
-static void MX_DAC1_Init(void)
+static void DAC_Init(DAC_HandleTypeDef* hdac)
 {
   DAC_ChannelConfTypeDef sConfig = {0};
 
-  if (HAL_DAC_Init(&hdac1) != HAL_OK)
+  if (HAL_DAC_Init(hdac) != HAL_OK)
   {
     Error_Handler();
   }
@@ -307,35 +307,35 @@ static void MX_DAC1_Init(void)
   sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
   sConfig.DAC_ConnectOnChipPeripheral = DAC_CHIPCONNECT_DISABLE;
   sConfig.DAC_UserTrimming = DAC_TRIMMING_FACTORY;
-  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK)
+  if (HAL_DAC_ConfigChannel(hdac, &sConfig, DAC_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
 
-  if (HAL_DACEx_SelfCalibrate(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK)
+  if (HAL_DACEx_SelfCalibrate(hdac, &sConfig, DAC_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
 
-  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t* )OutSampleBuffer, (SAMPLE_BUF_SIZE/2), DAC_ALIGN_12B_R) != HAL_OK) {
+  if (HAL_DAC_Start_DMA(hdac, DAC_CHANNEL_1, (uint32_t* )OutSampleBuffer, (SAMPLE_BUF_SIZE/2), DAC_ALIGN_12B_R) != HAL_OK) {
     Error_Handler();
   }
 }
 
-static void MX_OPAMP2_Init(void)
+static void OPAMP_Init(OPAMP_HandleTypeDef* hopamp)
 {
-  hopamp2.Init.PowerSupplyRange = OPAMP_POWERSUPPLY_HIGH;
-  hopamp2.Init.Mode = OPAMP_FOLLOWER_MODE;
-  hopamp2.Init.NonInvertingInput = OPAMP_NONINVERTINGINPUT_IO0;
-  hopamp2.Init.PowerMode = OPAMP_POWERMODE_NORMAL;
-  hopamp2.Init.UserTrimming = OPAMP_TRIMMING_FACTORY;
-  if (HAL_OPAMP_Init(&hopamp2) != HAL_OK)
+  hopamp->Init.PowerSupplyRange = OPAMP_POWERSUPPLY_HIGH;
+  hopamp->Init.Mode = OPAMP_FOLLOWER_MODE;
+  hopamp->Init.NonInvertingInput = OPAMP_NONINVERTINGINPUT_IO0;
+  hopamp->Init.PowerMode = OPAMP_POWERMODE_NORMAL;
+  hopamp->Init.UserTrimming = OPAMP_TRIMMING_FACTORY;
+  if (HAL_OPAMP_Init(hopamp) != HAL_OK)
   {
     Error_Handler();
   }
 
-  HAL_OPAMP_SelfCalibrate(&hopamp2);
-  HAL_OPAMP_Start(&hopamp2);
+  HAL_OPAMP_SelfCalibrate(hopamp);
+  HAL_OPAMP_Start(hopamp);
 }
 
 static void Timer_Init(TIM_HandleTypeDef *htim)
