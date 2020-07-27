@@ -90,13 +90,13 @@ static void USB_GlobalNAK(uint8_t set) {
   USBx_DEVICE->DCTL |= set ? USB_OTG_DCTL_SGONAK : USB_OTG_DCTL_CGONAK;
 }
 
-void CDC_RTS_OnChange(uint8_t on) {
+void CDC_StartStop_Signal(uint8_t on) {
   if(on && RunMode == RUN_MODE_SETUP) {
     RunMode = RUN_MODE_ACTIVE;
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
     HAL_TIM_Base_Start(&htim6);
     HAL_TIM_Base_Start(&htim3);
-  } else if (RunMode == RUN_MODE_ACTIVE) {
+  } else if (!on && RunMode == RUN_MODE_ACTIVE) {
     RunMode = RUN_MODE_SETUP;
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
     HAL_TIM_Base_Stop(&htim6);

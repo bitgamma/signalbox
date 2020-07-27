@@ -1,11 +1,8 @@
 #include "usbd_cdc_if.h"
 
 #define CDC_CONTROL_DTR 0x01
-#define CDC_CONTROL_RTS 0x02
-
-#define CDC_CTL_MASK (CDC_CONTROL_RTS | CDC_CONTROL_DTR)
-
 #define CDC_CONTROL_LINE_OFF 2
+#define CDC_START_BAUDRATE 57600
 
 extern USBD_HandleTypeDef hUsbDeviceFS;
 
@@ -14,9 +11,11 @@ static int8_t CDC_DeInit_FS(void);
 static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length);
 static int8_t CDC_Receive_FS(uint8_t* pbuf, uint32_t *Len);
 
-void CDC_RTS_OnChange(uint8_t on);
+void CDC_StartStop_Signal(uint8_t on);
 uint8_t* CDC_GetRecvBuffer();
 void CDC_Received();
+
+uint8_t CDCLineCoding[7];
 
 USBD_CDC_ItfTypeDef USBD_Interface_fops_FS =
 {
@@ -39,10 +38,14 @@ static int8_t CDC_DeInit_FS(void)
 
 static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 {
+  uint32_t baudRate;
+
   switch(cmd)
   {
     case CDC_SET_CONTROL_LINE_STATE:
-    CDC_RTS_OnChange((pbuf[CDC_CONTROL_LINE_OFF] & CDC_CTL_MASK) == CDC_CONTROL_DTR);
+    if ((pbuf[CDC_CONTROL_LINE_OFF] & CDC_CONTROL_DTR) == 0) {
+      CDC_StartStop_Signal(0);
+    }
     break;
     case CDC_SEND_ENCAPSULATED_COMMAND:
     break;
@@ -55,8 +58,12 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
     case CDC_CLEAR_COMM_FEATURE:
     break;
     case CDC_SET_LINE_CODING:
+    for (int i = 0; i < 7; i++) CDCLineCoding[i] = pbuf[i];
+    baudRate = (pbuf[3] << 24) | (pbuf[2] << 16) | (pbuf[1] << 8) | pbuf[0];
+    CDC_StartStop_Signal(baudRate == CDC_START_BAUDRATE);
     break;
     case CDC_GET_LINE_CODING:
+    for (int i = 0; i < 7; i++) pbuf[i] = CDCLineCoding[i];
     break;
     default:
     break;
