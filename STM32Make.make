@@ -67,6 +67,7 @@ Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_core.c \
 Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ctlreq.c \
 Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ioreq.c \
 Src/main.c \
+Src/peripherals.c \
 Src/stm32l4xx_hal_msp.c \
 Src/stm32l4xx_it.c \
 Src/system_stm32l4xx.c \
