@@ -59,8 +59,6 @@ void HAL_OPAMP_MspInit(OPAMP_HandleTypeDef* hopamp)
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   if(hopamp->Instance==OPAMP2)
   {
-    __HAL_RCC_OPAMP_CLK_ENABLE();
-
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
 
@@ -80,7 +78,6 @@ void HAL_OPAMP_MspDeInit(OPAMP_HandleTypeDef* hopamp)
 {
   if(hopamp->Instance==OPAMP2)
   {
-    __HAL_RCC_OPAMP_CLK_DISABLE();
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_6);
     HAL_GPIO_DeInit(GPIOB, GPIO_PIN_0);
   }

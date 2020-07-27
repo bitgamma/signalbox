@@ -9,6 +9,7 @@
 
 extern USBD_CDC_ItfTypeDef USBD_Interface_fops_FS;
 
+void CDC_USB_GlobalOUTNAK(uint8_t set);
 uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
 
 #ifdef __cplusplus

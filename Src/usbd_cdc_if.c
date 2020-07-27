@@ -91,3 +91,10 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
   result = USBD_CDC_TransmitPacket(&hUsbDeviceFS);
   return result;
 }
+
+void CDC_USB_GlobalOUTNAK(uint8_t set) {
+  PCD_HandleTypeDef *hpcd = hUsbDeviceFS.pData;
+  USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;
+  uint32_t USBx_BASE = (uint32_t)USBx;
+  USBx_DEVICE->DCTL |= set ? USB_OTG_DCTL_SGONAK : USB_OTG_DCTL_CGONAK;
+}

@@ -34,13 +34,15 @@ uint8_t BusyBuffers;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
+static void DMA_DeInit(void);
 static void MX_ADC1_Init(void);
 static void MX_OPAMP2_Init(void);
 static void MX_DAC1_Init(void);
-static void MX_TIM3_Init(void);
-static void MX_TIM6_Init(void);
-static void USB_GlobalNAK(uint8_t set);
+static void Timer_Init(TIM_HandleTypeDef*);
 
+static void EnterActiveMode();
+static void ExitActiveMode();
+static void Sleep(void);
 static void InitOutSampleBuffer();
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
@@ -59,14 +61,14 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   UNUSED(hdac);
   ToRecvBuf = &OutSampleBuffer[SEND_SIZE];
   if (BusyBuffers > 0) { BusyBuffers--; };
-  USB_GlobalNAK(0);
+  CDC_USB_GlobalOUTNAK(0);
 }
 
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   UNUSED(hdac);
   ToRecvBuf = OutSampleBuffer;
   if (BusyBuffers > 0) { BusyBuffers--; };
-  USB_GlobalNAK(0);
+  CDC_USB_GlobalOUTNAK(0);
 }
 
 uint8_t* CDC_GetRecvBuffer() {
@@ -79,31 +81,65 @@ uint8_t* CDC_GetRecvBuffer() {
 
 void CDC_Received() {
   if (RunMode == RUN_MODE_ACTIVE && (BusyBuffers++ > 0)) {
-    USB_GlobalNAK(1);
+    CDC_USB_GlobalOUTNAK(1);
   }
-}
-
-static void USB_GlobalNAK(uint8_t set) {
-  PCD_HandleTypeDef *hpcd = hUsbDeviceFS.pData;
-  USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;
-  uint32_t USBx_BASE = (uint32_t)USBx;
-  USBx_DEVICE->DCTL |= set ? USB_OTG_DCTL_SGONAK : USB_OTG_DCTL_CGONAK;
 }
 
 void CDC_StartStop_Signal(uint8_t on) {
   if(on && RunMode == RUN_MODE_SETUP) {
-    RunMode = RUN_MODE_ACTIVE;
-    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-    HAL_TIM_Base_Start(&htim6);
-    HAL_TIM_Base_Start(&htim3);
+    EnterActiveMode();
   } else if (!on && RunMode == RUN_MODE_ACTIVE) {
-    RunMode = RUN_MODE_SETUP;
-    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-    HAL_TIM_Base_Stop(&htim6);
-    HAL_TIM_Base_Stop(&htim3);
-    USB_GlobalNAK(0);
-    InitOutSampleBuffer();
+    ExitActiveMode();
   }
+}
+
+static void EnterActiveMode() {
+  RunMode = RUN_MODE_ACTIVE;
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+
+  MX_DMA_Init();
+
+  __HAL_RCC_OPAMP_CLK_ENABLE();
+  MX_OPAMP2_Init();
+  __HAL_RCC_OPAMP_CLK_DISABLE();
+
+  MX_ADC1_Init();
+  MX_DAC1_Init();
+  Timer_Init(&htim3);
+  Timer_Init(&htim6);
+}
+
+static void ExitActiveMode() {
+  RunMode = RUN_MODE_SETUP;
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+
+  HAL_TIM_Base_Stop(&htim6);
+  HAL_TIM_Base_DeInit(&htim6);
+
+  HAL_TIM_Base_Stop(&htim3);
+  HAL_TIM_Base_DeInit(&htim3);
+
+  HAL_DAC_Stop_DMA(&hdac1, DAC1_CHANNEL_1);
+  HAL_DAC_DeInit(&hdac1);
+
+  HAL_ADC_Stop_DMA(&hadc1);
+  HAL_ADC_DeInit(&hadc1);
+
+  __HAL_RCC_OPAMP_CLK_ENABLE();
+  HAL_OPAMP_Stop(&hopamp2);
+  HAL_OPAMP_DeInit(&hopamp2);
+  __HAL_RCC_OPAMP_CLK_DISABLE();
+
+  DMA_DeInit();
+
+  InitOutSampleBuffer();
+  CDC_USB_GlobalOUTNAK(0);
+}
+
+static void Sleep() {
+  HAL_SuspendTick();
+  __WFI();
+  HAL_ResumeTick();
 }
 
 static void InitOutSampleBuffer() {
@@ -125,17 +161,21 @@ int main(void)
   HAL_Init();
   SystemClock_Config();
   MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_ADC1_Init();
-  MX_OPAMP2_Init();
-  MX_DAC1_Init();
   MX_USB_DEVICE_Init();
-  MX_TIM3_Init();
-  MX_TIM6_Init();
+
+  htim3.Instance = TIM3;
+  htim6.Instance = TIM6;
+  hadc1.Instance = ADC1;
+  hdac1.Instance = DAC1;
+  hopamp2.Instance = OPAMP2;
 
   while (1)
   {
-    if (ToSendBuf) {
+    if (RunMode == RUN_MODE_SETUP)
+    {
+      Sleep();
+    } else if (ToSendBuf)
+    {
       CDC_Transmit_FS(ToSendBuf, SEND_SIZE);
       ToSendBuf = NULL;
     }
@@ -207,7 +247,6 @@ static void MX_ADC1_Init(void)
   ADC_MultiModeTypeDef multimode = {0};
   ADC_ChannelConfTypeDef sConfig = {0};
 
-  hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
@@ -258,7 +297,6 @@ static void MX_DAC1_Init(void)
 {
   DAC_ChannelConfTypeDef sConfig = {0};
 
-  hdac1.Instance = DAC1;
   if (HAL_DAC_Init(&hdac1) != HAL_OK)
   {
     Error_Handler();
@@ -286,7 +324,6 @@ static void MX_DAC1_Init(void)
 
 static void MX_OPAMP2_Init(void)
 {
-  hopamp2.Instance = OPAMP2;
   hopamp2.Init.PowerSupplyRange = OPAMP_POWERSUPPLY_HIGH;
   hopamp2.Init.Mode = OPAMP_FOLLOWER_MODE;
   hopamp2.Init.NonInvertingInput = OPAMP_NONINVERTINGINPUT_IO0;
@@ -299,63 +336,35 @@ static void MX_OPAMP2_Init(void)
 
   HAL_OPAMP_SelfCalibrate(&hopamp2);
   HAL_OPAMP_Start(&hopamp2);
-  __HAL_RCC_OPAMP_CLK_DISABLE();
 }
 
-static void MX_TIM3_Init(void)
+static void Timer_Init(TIM_HandleTypeDef *htim)
 {
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
 
-  htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 0;
-  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 799;
-  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  htim->Init.Prescaler = 0;
+  htim->Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim->Init.Period = 799;
+  htim->Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim->Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(htim) != HAL_OK)
   {
     Error_Handler();
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  if (HAL_TIM_ConfigClockSource(htim, &sClockSourceConfig) != HAL_OK)
   {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  if (HAL_TIMEx_MasterConfigSynchronization(htim, &sMasterConfig) != HAL_OK)
   {
     Error_Handler();
   }
-}
 
-static void MX_TIM6_Init(void)
-{
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 0;
-  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 799;
-  htim6.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim6, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  HAL_TIM_Base_Start(htim);
 }
 
 static void MX_DMA_Init(void)
@@ -368,6 +377,14 @@ static void MX_DMA_Init(void)
 
   HAL_NVIC_SetPriority(DMA2_Channel4_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA2_Channel4_IRQn);
+}
+
+static void DMA_DeInit(void) {
+  HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn);
+  HAL_NVIC_DisableIRQ(DMA2_Channel4_IRQn);
+
+  __HAL_RCC_DMA2_CLK_DISABLE();
+  __HAL_RCC_DMA1_CLK_DISABLE();
 }
 
 static void MX_GPIO_Init(void)
