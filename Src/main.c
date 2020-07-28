@@ -5,7 +5,7 @@
 
 #define USB_TRANSFER_SIZE 64
 #define ADC_SAMPLE_BUF_SIZE (USB_TRANSFER_SIZE * 2)
-#define DAC_SAMPLE_BUF_SIZE 128
+#define DAC_SAMPLE_BUF_SIZE (USB_TRANSFER_SIZE * 2)
 
 #define RUN_MODE_SETUP 0
 #define RUN_MODE_ACTIVE 1
@@ -150,15 +150,21 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   UNUSED(hdac);
   ToRecvBuf = &((uint8_t *) DACSampleBuffer)[USB_TRANSFER_SIZE];
-  if (BusyBuffers > 0) { BusyBuffers--; };
-  CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_CGONAK);
+
+  if (BusyBuffers > 0) {
+    BusyBuffers--;
+    CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_CGONAK);
+  };
 }
 
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   UNUSED(hdac);
   ToRecvBuf = (uint8_t *) DACSampleBuffer;
-  if (BusyBuffers > 0) { BusyBuffers--; };
-  CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_CGONAK);
+
+  if (BusyBuffers > 0) {
+    BusyBuffers--;
+    CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_CGONAK);
+  };
 }
 
 uint8_t* CDC_GetRecvBuffer() {
