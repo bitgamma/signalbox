@@ -172,10 +172,6 @@ uint8_t* CDC_GetRecvBuffer() {
 void CDC_Received() {
   if (RunMode == RUN_MODE_ACTIVE && (BusyBuffers++ > 0)) {
     CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_SGONAK);
-    /*ToRecvBuf = &ToRecvBuf[USB_TRANSFER_SIZE];
-    if ((uint32_t)ToRecvBuf > (uint32_t) DACSampleBuffer) {
-      ToRecvBuf = (uint8_t *) DACSampleBuffer;
-    }*/
   } else if (RunMode == RUN_MODE_SETUP) {
     CommandReceived = 1;
   }
