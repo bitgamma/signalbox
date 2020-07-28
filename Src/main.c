@@ -3,8 +3,9 @@
 #include "usb_device.h"
 #include "usbd_cdc_if.h"
 
-#define SEND_SIZE 64
-#define SAMPLE_BUF_SIZE (SEND_SIZE * 2)
+#define USB_TRANSFER_SIZE 64
+#define ADC_SAMPLE_BUF_SIZE (USB_TRANSFER_SIZE * 2)
+#define DAC_SAMPLE_BUF_SIZE 128
 
 #define RUN_MODE_SETUP 0
 #define RUN_MODE_ACTIVE 1
@@ -22,9 +23,9 @@ TIM_HandleTypeDef htim6;
 
 OPAMP_HandleTypeDef hopamp2;
 
-uint8_t InSampleBuffer[SAMPLE_BUF_SIZE];
-uint8_t OutSampleBuffer[SAMPLE_BUF_SIZE];
-uint8_t CommandBuffer[SEND_SIZE];
+uint32_t ADCSampleBuffer[ADC_SAMPLE_BUF_SIZE/4];
+uint32_t DACSampleBuffer[DAC_SAMPLE_BUF_SIZE/4];
+uint8_t CommandBuffer[USB_TRANSFER_SIZE];
 
 uint8_t* ToSendBuf;
 uint8_t* ToRecvBuf;
@@ -52,8 +53,8 @@ static void EnterActiveMode() {
   OPAMP_Init(&hopamp2);
   __HAL_RCC_OPAMP_CLK_DISABLE();
 
-  ADC_Init(&hadc1, (uint32_t* )InSampleBuffer, (SAMPLE_BUF_SIZE/2));
-  DAC_Init(&hdac1, (uint32_t* )OutSampleBuffer, (SAMPLE_BUF_SIZE/2));
+  ADC_Init(&hadc1, ADCSampleBuffer, (ADC_SAMPLE_BUF_SIZE/2));
+  DAC_Init(&hdac1, DACSampleBuffer, (DAC_SAMPLE_BUF_SIZE/2));
   Timer_Init(&htim3);
   Timer_Init(&htim6);
 
@@ -82,7 +83,7 @@ static void ExitActiveMode() {
 
   DMA_DeInit();
 
-  CDC_USB_GlobalOUTNAK(0);
+  CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_CGONAK);
 
   HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 }
@@ -116,7 +117,7 @@ int main(void) {
       ProcessCommand();
       Sleep();
     } else if (ToSendBuf) {
-      CDC_Transmit_FS(ToSendBuf, SEND_SIZE);
+      CDC_Transmit_FS(ToSendBuf, USB_TRANSFER_SIZE);
       ToSendBuf = NULL;
     }
   }
@@ -124,7 +125,7 @@ int main(void) {
 
 static void InitBuffers() {
   ToSendBuf = NULL;
-  ToRecvBuf = OutSampleBuffer;
+  ToRecvBuf = (uint8_t *) DACSampleBuffer;
   BusyBuffers = 0;
 }
 
@@ -137,27 +138,27 @@ static inline void Sleep() {
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
   UNUSED(hadc);
-  ToSendBuf = &InSampleBuffer[SEND_SIZE];
+  ToSendBuf = &((uint8_t *) ADCSampleBuffer)[USB_TRANSFER_SIZE];
 }
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 {
   UNUSED(hadc);
-  ToSendBuf = InSampleBuffer;
+  ToSendBuf = (uint8_t *) ADCSampleBuffer;
 }
 
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   UNUSED(hdac);
-  ToRecvBuf = &OutSampleBuffer[SEND_SIZE];
+  ToRecvBuf = &((uint8_t *) DACSampleBuffer)[USB_TRANSFER_SIZE];
   if (BusyBuffers > 0) { BusyBuffers--; };
-  CDC_USB_GlobalOUTNAK(0);
+  CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_CGONAK);
 }
 
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   UNUSED(hdac);
-  ToRecvBuf = OutSampleBuffer;
+  ToRecvBuf = (uint8_t *) DACSampleBuffer;
   if (BusyBuffers > 0) { BusyBuffers--; };
-  CDC_USB_GlobalOUTNAK(0);
+  CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_CGONAK);
 }
 
 uint8_t* CDC_GetRecvBuffer() {
@@ -170,7 +171,11 @@ uint8_t* CDC_GetRecvBuffer() {
 
 void CDC_Received() {
   if (RunMode == RUN_MODE_ACTIVE && (BusyBuffers++ > 0)) {
-    CDC_USB_GlobalOUTNAK(1);
+    CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_SGONAK);
+    /*ToRecvBuf = &ToRecvBuf[USB_TRANSFER_SIZE];
+    if ((uint32_t)ToRecvBuf > (uint32_t) DACSampleBuffer) {
+      ToRecvBuf = (uint8_t *) DACSampleBuffer;
+    }*/
   } else if (RunMode == RUN_MODE_SETUP) {
     CommandReceived = 1;
   }
