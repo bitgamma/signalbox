@@ -12,7 +12,6 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length);
 static int8_t CDC_Receive_FS(uint8_t* pbuf, uint32_t *Len);
 
 void CDC_StartStop_Signal(uint8_t on);
-uint8_t* CDC_GetRecvBuffer();
 void CDC_Received();
 
 uint8_t CDCLineCoding[7];
@@ -27,7 +26,6 @@ USBD_CDC_ItfTypeDef USBD_Interface_fops_FS =
 
 static int8_t CDC_Init_FS(void)
 {
-  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, CDC_GetRecvBuffer());
   return (USBD_OK);
 }
 
@@ -74,8 +72,6 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
-  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, CDC_GetRecvBuffer());
-  USBD_CDC_ReceivePacket(&hUsbDeviceFS);
   CDC_Received();
   return (USBD_OK);
 }

@@ -31,9 +31,9 @@ uint8_t* ToSendBuf;
 uint8_t* ToRecvBuf;
 
 uint8_t RunMode;
-uint8_t BusyBuffers;
 uint8_t NextMode;
-uint8_t CommandReceived;
+uint8_t DACFreeBufCount;
+uint8_t USBRxFIFOLen;
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -83,14 +83,17 @@ static void ExitActiveMode() {
 
   DMA_DeInit();
 
-  CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_CGONAK);
-
   HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 }
 
 static void ProcessCommand() {
-  if (!CommandReceived) return;
-  CommandReceived = 0;
+  if (USBRxFIFOLen) {
+    USBD_CDC_SetRxBuffer(&hUsbDeviceFS, CommandBuffer);
+    USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+    USBRxFIFOLen--;
+  }
+
+  //TODO: Do something with the command
 }
 
 int main(void) {
@@ -116,17 +119,27 @@ int main(void) {
     } else if (RunMode == RUN_MODE_SETUP) {
       ProcessCommand();
       Sleep();
-    } else if (ToSendBuf) {
-      CDC_Transmit_FS(ToSendBuf, USB_TRANSFER_SIZE);
-      ToSendBuf = NULL;
+    } else {
+      if (DACFreeBufCount && USBRxFIFOLen) {
+        USBD_CDC_SetRxBuffer(&hUsbDeviceFS, ToRecvBuf);
+        USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+        DACFreeBufCount--;
+        USBRxFIFOLen--;
+      }
+
+      if (ToSendBuf) {
+        CDC_Transmit_FS(ToSendBuf, USB_TRANSFER_SIZE);
+        ToSendBuf = NULL;
+      }
     }
   }
 }
 
 static void InitBuffers() {
   ToSendBuf = NULL;
-  ToRecvBuf = (uint8_t *) DACSampleBuffer;
-  BusyBuffers = 0;
+  ToRecvBuf = (uint8_t*) DACSampleBuffer;
+  DACFreeBufCount = 2;
+  USBRxFIFOLen = 0;
 }
 
 static inline void Sleep() {
@@ -150,37 +163,17 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   UNUSED(hdac);
   ToRecvBuf = &((uint8_t *) DACSampleBuffer)[USB_TRANSFER_SIZE];
-
-  if (BusyBuffers > 0) {
-    BusyBuffers--;
-    CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_CGONAK);
-  };
+  DACFreeBufCount++;
 }
 
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   UNUSED(hdac);
   ToRecvBuf = (uint8_t *) DACSampleBuffer;
-
-  if (BusyBuffers > 0) {
-    BusyBuffers--;
-    CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_CGONAK);
-  };
-}
-
-uint8_t* CDC_GetRecvBuffer() {
-  if (RunMode == RUN_MODE_SETUP) {
-    return CommandBuffer;
-  } else {
-    return ToRecvBuf;
-  }
+  DACFreeBufCount++;
 }
 
 void CDC_Received() {
-  if (RunMode == RUN_MODE_ACTIVE && (BusyBuffers++ > 0)) {
-    CDC_USB_GlobalOUTNAK(USB_OTG_DCTL_SGONAK);
-  } else if (RunMode == RUN_MODE_SETUP) {
-    CommandReceived = 1;
-  }
+  USBRxFIFOLen++;
 }
 
 void CDC_StartStop_Signal(uint8_t on) {
