@@ -60,14 +60,10 @@ void DAC_Init(DAC_HandleTypeDef* hdac, uint32_t* Buf, uint32_t ElementCount) {
 
   sConfig.DAC_SampleAndHold = DAC_SAMPLEANDHOLD_DISABLE;
   sConfig.DAC_Trigger = DAC_TRIGGER_T6_TRGO;
-  sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
+  sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_DISABLE;
   sConfig.DAC_ConnectOnChipPeripheral = DAC_CHIPCONNECT_DISABLE;
   sConfig.DAC_UserTrimming = DAC_TRIMMING_FACTORY;
   if (HAL_DAC_ConfigChannel(hdac, &sConfig, DAC_CHANNEL_1) != HAL_OK) {
-    Error_Handler();
-  }
-
-  if (HAL_DACEx_SelfCalibrate(hdac, &sConfig, DAC_CHANNEL_1) != HAL_OK) {
     Error_Handler();
   }
 
