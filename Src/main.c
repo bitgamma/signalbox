@@ -21,6 +21,7 @@ DMA_HandleTypeDef hdma_dac_ch1;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim6;
 
+OPAMP_HandleTypeDef hopamp1;
 OPAMP_HandleTypeDef hopamp2;
 
 uint32_t ADCSampleBuffer[ADC_SAMPLE_BUF_SIZE/4];
@@ -50,6 +51,7 @@ static void EnterActiveMode() {
   DMA_Init();
 
   __HAL_RCC_OPAMP_CLK_ENABLE();
+  OPAMP_Init(&hopamp1);
   OPAMP_Init(&hopamp2);
   __HAL_RCC_OPAMP_CLK_DISABLE();
 
@@ -77,6 +79,9 @@ static void ExitActiveMode() {
   HAL_ADC_DeInit(&hadc1);
 
   __HAL_RCC_OPAMP_CLK_ENABLE();
+  HAL_OPAMP_Stop(&hopamp1);
+  HAL_OPAMP_DeInit(&hopamp1);
+
   HAL_OPAMP_Stop(&hopamp2);
   HAL_OPAMP_DeInit(&hopamp2);
   __HAL_RCC_OPAMP_CLK_DISABLE();
@@ -243,9 +248,9 @@ void SystemClock_Config(void)
 static void MX_GPIO_Init(void) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
 
   HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 
