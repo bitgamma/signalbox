@@ -1,4 +1,5 @@
 #include "usbd_cdc_if.h"
+#include <string.h>
 
 #define CDC_CONTROL_DTR 0x01
 #define CDC_CONTROL_LINE_OFF 2
@@ -56,12 +57,12 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
     case CDC_CLEAR_COMM_FEATURE:
     break;
     case CDC_SET_LINE_CODING:
-    for (int i = 0; i < 7; i++) CDCLineCoding[i] = pbuf[i];
+    memcpy(CDCLineCoding, pbuf, 7);
     baudRate = (pbuf[3] << 24) | (pbuf[2] << 16) | (pbuf[1] << 8) | pbuf[0];
     CDC_StartStop_Signal(baudRate == CDC_START_BAUDRATE);
     break;
     case CDC_GET_LINE_CODING:
-    for (int i = 0; i < 7; i++) pbuf[i] = CDCLineCoding[i];
+    memcpy(pbuf, CDCLineCoding, 7);
     break;
     default:
     break;

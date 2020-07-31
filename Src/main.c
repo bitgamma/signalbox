@@ -12,24 +12,28 @@
 
 extern USBD_HandleTypeDef hUsbDeviceFS;
 
+ADCConfiguration adc1Config;
 ADC_HandleTypeDef hadc1;
+TIM_HandleTypeDef htim3;
 DMA_HandleTypeDef hdma_adc1;
 
+DACConfiguration dac1Config;
 DAC_HandleTypeDef hdac1;
 DMA_HandleTypeDef hdma_dac_ch1;
-
-TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim6;
 
+OPAMPConfiguration opampConfig[2];
 OPAMP_HandleTypeDef hopamp1;
 OPAMP_HandleTypeDef hopamp2;
 
 uint32_t ADCSampleBuffer[ADC_SAMPLE_BUF_SIZE/4];
 uint32_t DACSampleBuffer[DAC_SAMPLE_BUF_SIZE/4];
-uint8_t CommandBuffer[USB_TRANSFER_SIZE];
 
 uint8_t* ToSendBuf;
 uint8_t* ToRecvBuf;
+
+uint8_t CommandBuffer[USB_TRANSFER_SIZE];
+uint8_t ResponseBuffer[USB_TRANSFER_SIZE];
 
 uint8_t RunMode;
 uint8_t NextMode;
@@ -44,6 +48,8 @@ static void ExitActiveMode();
 static void Sleep(void);
 static void InitBuffers();
 static void ProcessCommand();
+static void ProcessUnknownCommand();
+static void ProcessSetConfig();
 
 static void EnterActiveMode() {
   RunMode = RUN_MODE_ACTIVE;
@@ -51,14 +57,24 @@ static void EnterActiveMode() {
   DMA_Init();
 
   __HAL_RCC_OPAMP_CLK_ENABLE();
-  OPAMP_Init(&hopamp1);
-  OPAMP_Init(&hopamp2);
+  if (CONF_IS_ENABLED(opampConfig[0].IDEnable)) {
+    OPAMP_Init(&hopamp1, &opampConfig[0]);
+  }
+
+  if (CONF_IS_ENABLED(opampConfig[1].IDEnable)) {
+    OPAMP_Init(&hopamp2, &opampConfig[1]);
+  }
   __HAL_RCC_OPAMP_CLK_DISABLE();
 
-  ADC_Init(&hadc1, ADCSampleBuffer, (ADC_SAMPLE_BUF_SIZE/2));
-  DAC_Init(&hdac1, DACSampleBuffer, (DAC_SAMPLE_BUF_SIZE/2));
-  Timer_Init(&htim3);
-  Timer_Init(&htim6);
+  if (CONF_IS_ENABLED(adc1Config.IDEnable)) {
+    ADC_Init(&hadc1, &adc1Config, ADCSampleBuffer, (ADC_SAMPLE_BUF_SIZE/2));
+    Timer_Init(&htim3, adc1Config.Prescaler, adc1Config.Period);
+  }
+
+  if (CONF_IS_ENABLED(dac1Config.IDEnable)) {
+    DAC_Init(&hdac1, &dac1Config, DACSampleBuffer, (DAC_SAMPLE_BUF_SIZE/2));
+    Timer_Init(&htim6, dac1Config.Prescaler, dac1Config.Period);
+  }
 
   HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
 }
@@ -66,24 +82,34 @@ static void EnterActiveMode() {
 static void ExitActiveMode() {
   RunMode = RUN_MODE_SETUP;
 
-  HAL_TIM_Base_Stop(&htim6);
-  HAL_TIM_Base_DeInit(&htim6);
+  if (CONF_IS_ENABLED(adc1Config.IDEnable)) {
+    HAL_TIM_Base_Stop(&htim3);
+    HAL_TIM_Base_DeInit(&htim3);
+    HAL_ADC_Stop_DMA(&hadc1);
+    HAL_ADC_DeInit(&hadc1);
+  }
 
-  HAL_TIM_Base_Stop(&htim3);
-  HAL_TIM_Base_DeInit(&htim3);
+  if (CONF_IS_ENABLED(dac1Config.IDEnable)) {
+    HAL_TIM_Base_Stop(&htim6);
+    HAL_TIM_Base_DeInit(&htim6);
 
-  HAL_DAC_Stop_DMA(&hdac1, DAC1_CHANNEL_1);
-  HAL_DAC_DeInit(&hdac1);
+    if (CONF_IS_ENABLED(dac1Config.ChannelsConfig[0].ChannelEnable)) {
+      HAL_DAC_Stop_DMA(&hdac1, DAC1_CHANNEL_1);
+    }
 
-  HAL_ADC_Stop_DMA(&hadc1);
-  HAL_ADC_DeInit(&hadc1);
+    HAL_DAC_DeInit(&hdac1);
+  }
 
   __HAL_RCC_OPAMP_CLK_ENABLE();
-  HAL_OPAMP_Stop(&hopamp1);
-  HAL_OPAMP_DeInit(&hopamp1);
+  if (CONF_IS_ENABLED(opampConfig[0].IDEnable)) {
+    HAL_OPAMP_Stop(&hopamp1);
+    HAL_OPAMP_DeInit(&hopamp1);
+  }
 
-  HAL_OPAMP_Stop(&hopamp2);
-  HAL_OPAMP_DeInit(&hopamp2);
+  if (CONF_IS_ENABLED(opampConfig[0].IDEnable)) {
+    HAL_OPAMP_Stop(&hopamp2);
+    HAL_OPAMP_DeInit(&hopamp2);
+  }
   __HAL_RCC_OPAMP_CLK_DISABLE();
 
   DMA_DeInit();
@@ -91,14 +117,67 @@ static void ExitActiveMode() {
   HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 }
 
+static void ProcessSetConfig() {
+  uint8_t* p = &CommandBuffer[1];
+  uint8_t respOff = 0;
+
+  ResponseBuffer[respOff++] = CMD_SET_CONFIG;
+
+  while(p[0] != DEV_ID_TERMINATOR) {
+    switch(p[0]) {
+      case DEV_ID_ADC:
+        if (CONF_GET_ID(p[1]) != ADC1_ID) {
+          ResponseBuffer[respOff++] = CONF_ERR_INVALID_ID;
+        } else {
+          memcpy(&adc1Config, &p[1], sizeof(ADCConfiguration));
+          p = &p[1 + sizeof(ADCConfiguration)];
+          ResponseBuffer[respOff++] = CONF_ERR_OK;
+        }
+      break;
+      case DEV_ID_DAC:
+        if (CONF_GET_ID(p[1]) != DAC1_ID) {
+          ResponseBuffer[respOff++] = CONF_ERR_INVALID_ID;
+        } else {
+          memcpy(&dac1Config, &p[1], sizeof(DACConfiguration));
+          p = &p[1 + sizeof(DACConfiguration)];
+          ResponseBuffer[respOff++] = CONF_ERR_OK;
+        }
+      break;
+      case DEV_ID_OPAMP:
+        if (CONF_GET_ID(p[1]) > OPAMP2_ID) {
+          ResponseBuffer[respOff++] = CONF_ERR_INVALID_ID;
+        } else {
+          memcpy(&opampConfig[CONF_GET_ID(p[1])], &p[1], sizeof(OPAMPConfiguration));
+          p = &p[1 + sizeof(OPAMPConfiguration)];
+          ResponseBuffer[respOff++] = CONF_ERR_OK;
+        }
+      break;
+    }
+  }
+
+  CDC_Transmit_FS(ResponseBuffer, respOff);
+}
+
+static void ProcessUnknownCommand() {
+  ResponseBuffer[0] = CMD_UNKNOWN;
+  CDC_Transmit_FS(ResponseBuffer, 1);
+}
+
 static void ProcessCommand() {
-  if (USBRxFIFOLen) {
+  while (USBRxFIFOLen) {
     USBD_CDC_SetRxBuffer(&hUsbDeviceFS, CommandBuffer);
     USBD_CDC_ReceivePacket(&hUsbDeviceFS);
     USBRxFIFOLen--;
-  }
 
-  //TODO: Do something with the command
+    switch(CommandBuffer[0]) {
+      case CMD_SET_CONFIG:
+        ProcessSetConfig();
+        break;
+      default:
+        ProcessUnknownCommand();
+        break;
+    }
+  }
 }
 
 int main(void) {
@@ -116,7 +195,13 @@ int main(void) {
   htim6.Instance = TIM6;
   hadc1.Instance = ADC1;
   hdac1.Instance = DAC1;
+  hopamp1.Instance = OPAMP1;
   hopamp2.Instance = OPAMP2;
+
+  adc1Config.IDEnable = 0x00;
+  dac1Config.IDEnable = 0x00;
+  opampConfig[0].IDEnable = 0x00;
+  opampConfig[1].IDEnable = 0x01;
 
   while (1) {
     if (NextMode != RunMode) {

@@ -20,6 +20,22 @@ void Error_Handler(void);
 #define SWO_Pin GPIO_PIN_3
 #define SWO_GPIO_Port GPIOB
 
+#define DEV_ID_TERMINATOR 0x00
+#define DEV_ID_ADC 0x01
+#define DEV_ID_DAC 0x02
+#define DEV_ID_OPAMP 0x03
+
+#define CMD_UNKNOWN 0x00
+#define CMD_SET_CONFIG 0x01
+
+#define ADC1_ID 0
+#define DAC1_ID 0
+#define OPAMP1_ID 0
+#define OPAMP2_ID 1
+
+#define CONF_ERR_OK 0x00
+#define CONF_ERR_INVALID_ID 0x01
+
 #ifdef __cplusplus
 }
 #endif
