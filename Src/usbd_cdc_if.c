@@ -7,14 +7,12 @@
 
 extern USBD_HandleTypeDef hUsbDeviceFS;
 
-static int8_t CDC_Init_FS(void);
 static int8_t CDC_DeInit_FS(void);
 static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length);
-static int8_t CDC_Receive_FS(uint8_t* pbuf, uint32_t *Len);
 
 void CDC_StartStop_Signal(uint8_t on);
 int8_t CDC_Init_FS(void);
-int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len);
+int8_t CDC_Receive_FS(uint8_t*, uint32_t*);
 
 uint8_t CDCLineCoding[7];
 
@@ -77,11 +75,4 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
   USBD_CDC_SetTxBuffer(&hUsbDeviceFS, Buf, Len);
   result = USBD_CDC_TransmitPacket(&hUsbDeviceFS);
   return result;
-}
-
-void CDC_USB_GlobalOUTNAK(uint32_t Flag) {
-  PCD_HandleTypeDef *hpcd = hUsbDeviceFS.pData;
-  USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;
-  uint32_t USBx_BASE = (uint32_t)USBx;
-  USBx_DEVICE->DCTL |= Flag;
 }
