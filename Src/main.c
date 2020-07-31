@@ -33,7 +33,7 @@ uint8_t* ToSendBuf;
 uint8_t* ToRecvBuf;
 
 uint8_t* LastReceivedBuffer;
-uint8_t ResponseBuffer[USB_TRANSFER_SIZE];
+uint8_t* ResponseBuffer;
 
 uint8_t RunMode;
 uint8_t NextMode;
@@ -254,6 +254,7 @@ static void InitBuffers() {
   LastReceivedBuffer = NULL;
   ToSendBuf = NULL;
   ToRecvBuf = (uint8_t*) DACSampleBuffer;
+  ResponseBuffer = (uint8_t*) ADCSampleBuffer;
   DACFreeBufCount = 2;
 }
 
