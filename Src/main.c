@@ -53,6 +53,8 @@ static void ProcessSetConfig();
 
 static void EnterActiveMode() {
   RunMode = RUN_MODE_ACTIVE;
+  InitBuffers();
+  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, ToRecvBuf);
 
   DMA_Init();
 
@@ -124,31 +126,43 @@ static void ProcessSetConfig() {
   ResponseBuffer[respOff++] = CMD_SET_CONFIG;
 
   while(p[0] != DEV_ID_TERMINATOR) {
+    uint8_t devID = CONF_GET_ID(p[1]);
+
     switch(p[0]) {
       case DEV_ID_ADC:
-        if (CONF_GET_ID(p[1]) != ADC1_ID) {
+        if (devID != ADC1_ID) {
           ResponseBuffer[respOff++] = CONF_ERR_INVALID_ID;
         } else {
-          memcpy(&adc1Config, &p[1], sizeof(ADCConfiguration));
-          p = &p[1 + sizeof(ADCConfiguration)];
+          adc1Config.IDEnable = p[1];
+          adc1Config.Oversampling = p[2];
+          adc1Config.Prescaler = (p[4] << 8) | p[3];
+          adc1Config.Period = (p[6] << 8) | p[5];
+          adc1Config.ChannelsConfig[0].ChannelEnable = p[7];
+          adc1Config.ChannelsConfig[0].SamplingTime = p[8];
+          p = &p[9];
           ResponseBuffer[respOff++] = CONF_ERR_OK;
         }
       break;
       case DEV_ID_DAC:
-        if (CONF_GET_ID(p[1]) != DAC1_ID) {
+        if (devID != DAC1_ID) {
           ResponseBuffer[respOff++] = CONF_ERR_INVALID_ID;
         } else {
-          memcpy(&dac1Config, &p[1], sizeof(DACConfiguration));
-          p = &p[1 + sizeof(DACConfiguration)];
+          dac1Config.IDEnable = p[1];
+          dac1Config.Prescaler = (p[3] << 8) | p[2];
+          dac1Config.Period = (p[5] << 8) | p[4];
+          dac1Config.ChannelsConfig[0].ChannelEnable = p[6];
+          p = &p[7];
           ResponseBuffer[respOff++] = CONF_ERR_OK;
         }
       break;
       case DEV_ID_OPAMP:
-        if (CONF_GET_ID(p[1]) > OPAMP2_ID) {
+        if (devID > OPAMP2_ID) {
           ResponseBuffer[respOff++] = CONF_ERR_INVALID_ID;
         } else {
-          memcpy(&opampConfig[CONF_GET_ID(p[1])], &p[1], sizeof(OPAMPConfiguration));
-          p = &p[1 + sizeof(OPAMPConfiguration)];
+          opampConfig[devID].IDEnable = p[1];
+          opampConfig[devID].Gain = p[2];
+          opampConfig[devID].InvertingInput = p[3];
+          p = &p[4];
           ResponseBuffer[respOff++] = CONF_ERR_OK;
         }
       break;
@@ -165,10 +179,6 @@ static void ProcessUnknownCommand() {
 
 static void ProcessCommand() {
   while (USBRxFIFOLen) {
-    USBD_CDC_SetRxBuffer(&hUsbDeviceFS, CommandBuffer);
-    USBD_CDC_ReceivePacket(&hUsbDeviceFS);
-    USBRxFIFOLen--;
-
     switch(CommandBuffer[0]) {
       case CMD_SET_CONFIG:
         ProcessSetConfig();
@@ -177,6 +187,9 @@ static void ProcessCommand() {
         ProcessUnknownCommand();
         break;
     }
+
+    USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+    USBRxFIFOLen--;
   }
 }
 
@@ -262,8 +275,15 @@ void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   DACFreeBufCount++;
 }
 
-void CDC_Received() {
+int8_t CDC_Init_FS(void) {
+  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, CommandBuffer);
+  USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+  return (USBD_OK);
+}
+
+int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len) {
   USBRxFIFOLen++;
+  return (USBD_OK);
 }
 
 void CDC_StartStop_Signal(uint8_t on) {

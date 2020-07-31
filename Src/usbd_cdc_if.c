@@ -13,7 +13,8 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length);
 static int8_t CDC_Receive_FS(uint8_t* pbuf, uint32_t *Len);
 
 void CDC_StartStop_Signal(uint8_t on);
-void CDC_Received();
+int8_t CDC_Init_FS(void);
+int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len);
 
 uint8_t CDCLineCoding[7];
 
@@ -24,11 +25,6 @@ USBD_CDC_ItfTypeDef USBD_Interface_fops_FS =
   CDC_Control_FS,
   CDC_Receive_FS
 };
-
-static int8_t CDC_Init_FS(void)
-{
-  return (USBD_OK);
-}
 
 static int8_t CDC_DeInit_FS(void)
 {
@@ -68,12 +64,6 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
     break;
   }
 
-  return (USBD_OK);
-}
-
-static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
-{
-  CDC_Received();
   return (USBD_OK);
 }
 
