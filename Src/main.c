@@ -30,14 +30,14 @@ uint32_t ADCSampleBuffer[ADC_SAMPLE_BUF_SIZE/4];
 uint32_t DACSampleBuffer[DAC_SAMPLE_BUF_SIZE/4];
 
 uint8_t* ToSendBuf;
-uint8_t* ToRecvBuf;
+uint8_t* ToRecvBuf[2];
 
 uint8_t* LastReceivedBuffer;
 uint8_t* ResponseBuffer;
 
 uint8_t RunMode;
 uint8_t NextMode;
-uint8_t DACFreeBufCount;
+uint8_t DACFreeBuf[2];
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -113,12 +113,13 @@ static void ExitActiveMode() {
 
   DMA_DeInit();
 
+  DACFreeBuf[0] = 1;
+  DACFreeBuf[1] = 1;
+
   if (LastReceivedBuffer == NULL) {
-    USBD_CDC_SetRxBuffer(&hUsbDeviceFS, ToRecvBuf);
+    USBD_CDC_SetRxBuffer(&hUsbDeviceFS, ToRecvBuf[0]);
     USBD_CDC_ReceivePacket(&hUsbDeviceFS);
   }
-
-  DACFreeBufCount = 2;
 
   HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 }
@@ -197,6 +198,13 @@ static void ProcessCommand() {
   }
 }
 
+void ReceiveDACBuf(uint8_t idx) {
+  DACFreeBuf[idx] = 0;
+  LastReceivedBuffer = NULL;
+  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, ToRecvBuf[idx]);
+  USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+}
+
 int main(void) {
   RunMode = RUN_MODE_SETUP;
   NextMode = RUN_MODE_SETUP;
@@ -227,19 +235,12 @@ int main(void) {
       ProcessCommand();
       Sleep();
     } else {
-      if (DACFreeBufCount && LastReceivedBuffer) {
-        if (((uint32_t) LastReceivedBuffer == (uint32_t) DACSampleBuffer) && (DACFreeBufCount == 1)) {
-          ToRecvBuf = &LastReceivedBuffer[USB_TRANSFER_SIZE];
-        } else if (DACFreeBufCount == 1) {
-          ToRecvBuf = (uint8_t *) DACSampleBuffer;
-        } else {
-          ToRecvBuf = LastReceivedBuffer;
+      if (LastReceivedBuffer) {
+        if (DACFreeBuf[0]) {
+          ReceiveDACBuf(0);
+        } else if (DACFreeBuf[1]) {
+          ReceiveDACBuf(1);
         }
-
-        LastReceivedBuffer = NULL;
-        DACFreeBufCount--;
-        USBD_CDC_SetRxBuffer(&hUsbDeviceFS, ToRecvBuf);
-        USBD_CDC_ReceivePacket(&hUsbDeviceFS);
       }
 
       if (ToSendBuf) {
@@ -253,9 +254,11 @@ int main(void) {
 static void InitBuffers() {
   LastReceivedBuffer = NULL;
   ToSendBuf = NULL;
-  ToRecvBuf = (uint8_t*) DACSampleBuffer;
+  ToRecvBuf[0] = (uint8_t*) DACSampleBuffer;
+  ToRecvBuf[1] = &((uint8_t*) DACSampleBuffer)[USB_TRANSFER_SIZE];
   ResponseBuffer = (uint8_t*) ADCSampleBuffer;
-  DACFreeBufCount = 2;
+  DACFreeBuf[0] = 1;
+  DACFreeBuf[1] = 1;
 }
 
 static inline void Sleep() {
@@ -278,16 +281,16 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   UNUSED(hdac);
-  DACFreeBufCount++;
+  DACFreeBuf[1] = 1;
 }
 
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   UNUSED(hdac);
-  DACFreeBufCount++;
+  DACFreeBuf[0] = 1;
 }
 
 int8_t CDC_Init_FS(void) {
-  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, ToRecvBuf);
+  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, ToRecvBuf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
   return (USBD_OK);
 }
