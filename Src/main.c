@@ -45,13 +45,14 @@ static void MX_GPIO_Init(void);
 static void EnterActiveMode();
 static void ExitActiveMode();
 static void Sleep(void);
-static void InitBuffers();
 static void ProcessCommand();
 static void ProcessUnknownCommand();
 static void ProcessSetConfig();
 
 static void EnterActiveMode() {
   RunMode = RUN_MODE_ACTIVE;
+  DACFreeBuf[0] = 1;
+  DACFreeBuf[1] = 1;
 
   DMA_Init();
 
@@ -112,9 +113,6 @@ static void ExitActiveMode() {
   __HAL_RCC_OPAMP_CLK_DISABLE();
 
   DMA_DeInit();
-
-  DACFreeBuf[0] = 1;
-  DACFreeBuf[1] = 1;
 
   if (LastReceivedBuffer == NULL) {
     USBD_CDC_SetRxBuffer(&hUsbDeviceFS, ToRecvBuf[0]);
@@ -209,7 +207,11 @@ int main(void) {
   RunMode = RUN_MODE_SETUP;
   NextMode = RUN_MODE_SETUP;
 
-  InitBuffers();
+  LastReceivedBuffer = NULL;
+  ToSendBuf = NULL;
+  ToRecvBuf[0] = (uint8_t*) DACSampleBuffer;
+  ToRecvBuf[1] = &((uint8_t*) DACSampleBuffer)[USB_TRANSFER_SIZE];
+  ResponseBuffer = (uint8_t*) ADCSampleBuffer;
 
   HAL_Init();
   SystemClock_Config();
@@ -249,16 +251,6 @@ int main(void) {
       }
     }
   }
-}
-
-static void InitBuffers() {
-  LastReceivedBuffer = NULL;
-  ToSendBuf = NULL;
-  ToRecvBuf[0] = (uint8_t*) DACSampleBuffer;
-  ToRecvBuf[1] = &((uint8_t*) DACSampleBuffer)[USB_TRANSFER_SIZE];
-  ResponseBuffer = (uint8_t*) ADCSampleBuffer;
-  DACFreeBuf[0] = 1;
-  DACFreeBuf[1] = 1;
 }
 
 static inline void Sleep() {
